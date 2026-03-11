@@ -15,6 +15,14 @@ function summary_editor_field_widget_form_alter(&$element, &$form_state, $contex
     return;
   }
 
+  // Only apply if enabled for this field instance.
+  $instance = $context['instance'];
+  $key = $instance['entity_type'] . '.' . $instance['bundle'] . '.' . $instance['field_name'];
+  $enabled_instances = config_get('summary_editor.settings', 'enabled_instances');
+  if (!is_array($enabled_instances) || !in_array($key, $enabled_instances)) {
+    return;
+  }
+
   // Inherit the text format from the main value field.
   $format = isset($element['value']['#format']) ? $element['value']['#format'] : filter_default_format();
 
@@ -46,4 +54,115 @@ function summary_editor_flatten_value($element, &$form_state, $form) {
   if (is_array($value) && array_key_exists('value', $value)) {
     backdrop_array_set_nested_value($form_state['values'], $element['#parents'], $value['value'], TRUE);
   }
+}
+
+/**
+ * Implements hook_form_field_ui_field_edit_form_alter().
+ */
+function summary_editor_form_field_ui_field_edit_form_alter(&$form, &$form_state, $form_id) {
+  $field = $form['#field'];
+  if ($field['type'] !== 'text_with_summary') {
+    return;
+  }
+
+  $instance = $form['#instance'];
+  $key = $instance['entity_type'] . '.' . $instance['bundle'] . '.' . $instance['field_name'];
+  $enabled_instances = config_get('summary_editor.settings', 'enabled_instances');
+  $enabled = is_array($enabled_instances) && in_array($key, $enabled_instances);
+
+  $form['summary_editor'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Summary Editor'),
+    '#weight' => 5,
+    '#tree' => TRUE,
+  );
+  $form['summary_editor']['enabled'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Enable rich text editor for the summary field'),
+    '#description' => t('Attaches a WYSIWYG editor to the summary field and keeps it always visible on the edit form. Note: HTML tags in this field may appear as raw text in search engine previews and meta descriptions. Use the <code>[node:summary-plain]</code> token in your SEO/metatag configuration for a plain-text version.'),
+    '#default_value' => $enabled,
+  );
+
+  $form['#submit'][] = 'summary_editor_field_edit_form_submit';
+}
+
+/**
+ * Submit handler: save the per-instance enabled setting to config.
+ */
+function summary_editor_field_edit_form_submit($form, &$form_state) {
+  $instance = $form['#instance'];
+  $key = $instance['entity_type'] . '.' . $instance['bundle'] . '.' . $instance['field_name'];
+
+  $config = config('summary_editor.settings');
+  $enabled_instances = $config->get('enabled_instances');
+  if (!is_array($enabled_instances)) {
+    $enabled_instances = array();
+  }
+
+  if (!empty($form_state['values']['summary_editor']['enabled'])) {
+    if (!in_array($key, $enabled_instances)) {
+      $enabled_instances[] = $key;
+    }
+  }
+  else {
+    $enabled_instances = array_values(array_filter($enabled_instances, function($k) use ($key) {
+      return $k !== $key;
+    }));
+  }
+
+  $config->set('enabled_instances', $enabled_instances);
+  $config->save();
+}
+
+/**
+ * Implements hook_token_info().
+ */
+function summary_editor_token_info() {
+  $info['tokens']['node']['summary-plain'] = array(
+    'name' => t('Summary (plain text)'),
+    'description' => t('The summary of the main body field with all HTML tags stripped. Safe for use in meta descriptions and other plain-text contexts.'),
+  );
+  return $info;
+}
+
+/**
+ * Implements hook_tokens().
+ */
+function summary_editor_tokens($type, $tokens, array $data = array(), array $options = array()) {
+  $replacements = array();
+
+  if ($type !== 'node' || empty($data['node'])) {
+    return $replacements;
+  }
+
+  $node = $data['node'];
+  $sanitize = !empty($options['sanitize']);
+
+  foreach ($tokens as $name => $original) {
+    if ($name !== 'summary-plain') {
+      continue;
+    }
+
+    // Find the first text_with_summary field on this node.
+    $plain = '';
+    foreach (field_info_instances('node', $node->type) as $field_name => $instance) {
+      $field = field_info_field($field_name);
+      if ($field['type'] !== 'text_with_summary') {
+        continue;
+      }
+      $items = field_get_items('node', $node, $field_name);
+      if ($items && !empty($items[0]['summary'])) {
+        $plain = strip_tags($items[0]['summary']);
+      }
+      elseif ($items && !empty($items[0]['value'])) {
+        // Fall back to a trimmed plain-text excerpt of the body.
+        $plain = text_summary(strip_tags($items[0]['value']), NULL, 300);
+      }
+      break;
+    }
+
+    $replacements[$original] = $sanitize ? check_plain($plain) : $plain;
+  }
+
+  return $replacements;
 }
