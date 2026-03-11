@@ -1,0 +1,49 @@
+<?php
+/**
+ * @file
+ * Attaches a WYSIWYG editor to the summary textarea on text with summary fields.
+ */
+
+/**
+ * Implements hook_field_widget_form_alter().
+ */
+function summary_editor_field_widget_form_alter(&$element, &$form_state, $context) {
+  if ($context['instance']['widget']['type'] !== 'text_textarea_with_summary') {
+    return;
+  }
+  if (!isset($element['summary'])) {
+    return;
+  }
+
+  // Inherit the text format from the main value field.
+  $format = isset($element['value']['#format']) ? $element['value']['#format'] : filter_default_format();
+
+  $summary = $element['summary'];
+  $element['summary'] = array(
+    '#type' => 'text_format',
+    '#title' => $summary['#title'],
+    '#default_value' => isset($summary['#default_value']) ? $summary['#default_value'] : '',
+    '#format' => $format,
+    '#base_type' => 'textarea',
+    '#rows' => isset($summary['#rows']) ? $summary['#rows'] : 3,
+    '#description' => isset($summary['#description']) ? $summary['#description'] : '',
+    '#element_validate' => array('summary_editor_flatten_value'),
+    '#attached' => array(
+      'css' => array(backdrop_get_path('module', 'summary_editor') . '/css/summary_editor.css'),
+    ),
+  );
+}
+
+/**
+ * Element validate callback: flatten the text_format value back to a string.
+ *
+ * The text field module expects the summary to be a plain string, but
+ * text_format elements submit an array with 'value' and 'format' keys. This
+ * callback extracts just the text value before it reaches field storage.
+ */
+function summary_editor_flatten_value($element, &$form_state, $form) {
+  $value = backdrop_array_get_nested_value($form_state['values'], $element['#parents']);
+  if (is_array($value) && array_key_exists('value', $value)) {
+    backdrop_array_set_nested_value($form_state['values'], $element['#parents'], $value['value'], TRUE);
+  }
+}

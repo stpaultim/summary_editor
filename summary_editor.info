@@ -1,0 +1,7 @@
+name = Summary Editor
+description = Attaches a WYSIWYG editor to the summary textarea on text fields that support a summary.
+package = Fields
+backdrop = 1.x
+type = module
+
+dependencies[] = text

@@ -1,0 +1,9 @@
+/**
+ * Hide the redundant format selector on the summary field.
+ *
+ * The summary inherits its format from the main body field, so there is no
+ * need to show a second format selector or filter tips.
+ */
+.field-type-text-with-summary .field-summary .filter-wrapper {
+  display: none;
+}
